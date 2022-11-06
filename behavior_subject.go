@@ -1,39 +1,16 @@
 package rxgo
 
-import (
-	"sync"
-)
-
 type BehaviorSubject[T any] interface {
+	Subscribe(OnNextFunc[T], OnErrorFunc, OnCompleteFunc) Subscription
 	Next(value T)
 	Error(err error)
 	Complete()
 	Value() T
 }
 
-type subject[T any] struct {
-	mu        sync.RWMutex
-	closed    bool
-	err       error
-	observers []Observer[T]
-}
-
-func (s *subject[T]) Closed() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.closed
-}
-
-func (s *subject[T]) Unsubscribe() {
-	s.mu.Lock()
-	s.closed = true
-	s.observers = []Observer[T]{}
-	s.mu.Unlock()
-}
-
 type behaviorSubject[T any] struct {
 	subject[T]
-	v T
+	value T
 }
 
 func (s *behaviorSubject[T]) Next(value T) {
@@ -42,7 +19,7 @@ func (s *behaviorSubject[T]) Next(value T) {
 		s.mu.Unlock()
 		return
 	}
-	s.v = value
+	s.value = value
 	s.mu.Unlock()
 	for _, obs := range s.observers {
 		obs.Next(value)
@@ -78,7 +55,7 @@ func (s *behaviorSubject[T]) Complete() {
 func (s *behaviorSubject[T]) Value() T {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.v
+	return s.value
 }
 
 func (s *behaviorSubject[T]) Subscribe(onNext OnNextFunc[T], onError OnErrorFunc, onComplete OnCompleteFunc) Subscription {
@@ -88,14 +65,16 @@ func (s *behaviorSubject[T]) Subscribe(onNext OnNextFunc[T], onError OnErrorFunc
 	if s.closed {
 		return &emptySubscription{}
 	}
-	s.observers = append(s.observers, NewObserver(onNext, onError, onComplete))
+	obs := NewObserver(onNext, onError, onComplete)
+	obs.Next(s.value)
+	s.observers = append(s.observers, obs)
 	return nil
 }
 
 func NewBehaviorSubject[T any](value ...T) BehaviorSubject[T] {
-	var v T
+	var val T
 	if len(value) > 0 {
-		v = value[0]
+		val = value[0]
 	}
-	return &behaviorSubject[T]{v: v}
+	return &behaviorSubject[T]{value: val}
 }
